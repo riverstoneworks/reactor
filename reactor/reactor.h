@@ -7,27 +7,26 @@
 
 #ifndef REACTOR_H_
 #define REACTOR_H_
-#include <linux/aio_abi.h>
 
+struct reactor;
 
-typedef struct _io_res{
-	__s64 res;
-	__s64 res2;
-	int(*cb)(struct io_event*);
-}IORes;
-
-struct _aio_srv;
-struct aio_srv{
-	long nr_events;
-	struct _aio_srv* _aio;
+struct task{
+	int (*fun)(struct task*); //function to be executed
+	void* data;
+	enum {
+			CANCEL=-2,
+			COMPLETE=-1,
+			INIT=0
+	} stat;	//status ID
+	struct reactor* r;
 };
 
-extern int aio_srv_init(struct aio_srv *);
+extern struct reactor* create_reactor(int nq,int cap,int(*dispach)(struct reactor*,struct task*));
+extern int task_cancel(int task_no,struct task*, struct reactor*);
+extern int destory_reactor(struct reactor*);
 
-extern int aio_srv_destroy(struct aio_srv*);
+extern int ready(struct task* );
 
-extern long aio_submit(struct aio_srv* ,struct iocb* , long int );
-
-extern int ret_res(struct io_event*);
+extern int dispatch_by_left(struct reactor* r,struct task* t);
 
 #endif /* REACTOR_H_ */

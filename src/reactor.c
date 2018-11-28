@@ -1,4 +1,3 @@
-
 /*
  * reactor.c
  *
@@ -9,74 +8,143 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/syscall.h>
-#include <linux/aio_abi.h>
 #include <threads.h>
 #include <string.h>
 #include <error.h>
 #include <time.h>
+#include <sys/syscall.h>
+#include <sys/eventfd.h>
+
 #include "reactor/reactor.h"
 
-int ret_res(struct io_event* ioev){
-	((struct _io_res *)(ioev->data))->res=ioev->res;
-	((struct _io_res*)(ioev->data))->res2=ioev->res2;
-	struct iocb* io=(void*)(ioev->obj);
-	io->aio_resfd=1;
-
-	return 0;
-}
-
-struct _aio_srv{
-	aio_context_t ctx;
-	struct io_event* ioev;
-	thrd_t thd;
+struct ready_queue{
+	struct task** task;
+	unsigned short head;
+	unsigned short end;
+	const unsigned short cap;
+	int efd;			//read write signal
+	thrd_t ex_thd;
+	int lock_head;
+	int *run_flag;
 };
 
+struct reactor{
+	int(*dispatch)(struct reactor*,struct task*);
+	struct ready_queue* ready_queue;
+	int run_flag;
+	const unsigned short nq;
+};
 
-int aio_srv_get_ioev(struct aio_srv* a){
-	int n=0;
-	while(1){
-		n=syscall(SYS_io_getevents, a->_aio->ctx, 1, a->nr_events, a->_aio->ioev ,NULL);
-		if(n<0){
-			perror("io_getevents");
-			return n;
-		}
-		while(n-->0){
-			((struct _io_res *)(a->_aio->ioev[n].data))->cb(a->_aio->ioev+n);
+int task_exec(struct ready_queue* rq){
+	eventfd_t i=0;
+	struct task* t;
+	while(*(rq->run_flag)){
+		if(eventfd_read(rq->efd,&i)<0)
+			return -1;
+		for(int j=0;j<i;++j){
+			t=rq->task[rq->head++];
+			t->fun(t);
 		}
 	}
+
 	return 0;
 }
 
-int aio_srv_init(struct aio_srv * a){
-	//new
-	a->_aio=calloc(1,sizeof(struct _aio_srv));
-	a->_aio->ioev=malloc(sizeof(struct io_event)*a->nr_events);
+struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,struct task*)){
+	struct reactor* r=malloc(sizeof(struct reactor));
+	if(!r)
+		return NULL;
+	*(unsigned short*)(&(r->nq))=nq;
+	r->dispatch=dispatch;
+	r->run_flag=1;
 
-	int n=syscall(SYS_io_setup,a->nr_events,&(a->_aio->ctx));
-
-	if(n<0)
-		return n;
-	else
-		n=thrd_create(&(a->_aio->thd), (int(*)(void*))aio_srv_get_ioev, a);
-
-	return n;
+	if(!(r->ready_queue=malloc(sizeof(struct ready_queue)*nq)))
+		return NULL;
+	while(nq--){
+		struct ready_queue* rq=r->ready_queue+nq;
+		*(unsigned short*)&(rq->cap)=cap;
+		rq->task=malloc(sizeof(struct task*)*(cap+1));
+		rq->head=0;
+		rq->end=0;
+		rq->run_flag=&(r->run_flag);
+		rq->efd=eventfd(0, 0);
+		rq->lock_head=eventfd(1, EFD_SEMAPHORE);
+		int eno=thrd_create(&(rq->ex_thd), (int(*)(void*))task_exec,rq );
+		if(eno<0||rq->efd<0||rq->task==NULL){
+			destory_reactor(r);
+			return NULL;
+		}
+	}
+	return r;
 }
 
-int aio_srv_destroy(struct aio_srv* a){
+//do nothing
+int fn(struct task* v){return 0;}
 
-	int n,r;
-	if(0>(n=syscall(SYS_io_destroy,a->_aio->ctx)))
-		return n;
-	else if(0>(n=thrd_join(a->_aio->thd,&r)))
-		return n;
+int destory_reactor(struct reactor* r){
+	int i=r->nq,rt;
+	r->run_flag=0;
+	struct task tt={
+			.r=r,
+			.fun=fn
+	};
+	while(i--){
+		struct ready_queue* rq=r->ready_queue+i;
+		if(rq->end==rq->head){
+			int tmp=-1;
+			eventfd_read(rq->lock_head,NULL);
+			if(rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1))>0)
+				tmp=rq->end=(rq->end+1)%(rq->cap+1);
+			eventfd_write(rq->lock_head,1);
 
-	free(a->_aio->ioev);
-	free(a->_aio);
+			if(tmp>0){
+				rq->task[--tmp]=&tt;
+				eventfd_write(rq->efd,1);
+			}
+		}
+		thrd_join(rq->ex_thd,&rt);
+		free(rq->task);
+		close(rq->efd);
+	}
+	free(r->ready_queue);
+	free(r);
 
-	return n;
+	return 0;
 }
 
-long aio_submit(struct aio_srv* as,struct iocb* io, long int nr){
-	return syscall(SYS_io_submit,as->_aio->ctx,nr,&io);
+//submit task to ready queue
+int ready(struct task* ts){
+	return (ts->r->dispatch)(ts->r,ts);
 }
+
+
+int dispatch_by_left(struct reactor* r,struct task* t){
+	int n=r->nq,i=0,left=0,tmp;
+	struct ready_queue* rq;
+	while(n--){
+		rq=r->ready_queue+n;
+		tmp=rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1));
+		if(left<tmp){
+			left=tmp;
+			i=n;
+		}
+	}
+	tmp=-1;
+	if(left>0){
+		rq=r->ready_queue+i;
+		eventfd_read(rq->lock_head,NULL);
+		if(rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1))>0)
+			tmp=rq->end=(rq->end+1)%(rq->cap+1);
+		eventfd_write(rq->lock_head,1);
+
+		if(tmp>0){
+			rq->task[--tmp]=t;
+			eventfd_write(rq->efd,1);
+		}
+
+	}
+
+	return tmp<0?-1:rq->cap*i+tmp;
+}
+
+

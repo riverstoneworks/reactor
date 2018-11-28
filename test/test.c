@@ -1,11 +1,10 @@
-
 /*
  ============================================================================
  Name        : test.c
  Author      : Like.Z
  Version     :
  Copyright   : 2018 Like.Z
- Description : Hello World in C, Ansi-style
+ Description : test in C
  ============================================================================
  */
 #include <stdio.h>
@@ -15,37 +14,91 @@
 #include <error.h>
 #include <string.h>
 
+#include "aio/aio.h"
 #include "reactor/reactor.h"
 
+
+int simpleTask(struct task* ts){
+	struct{
+		struct aio_srv* as;
+	}*input=ts->data;
+	struct{
+		int x;
+		char buf[1024];
+		struct iocb ios;
+		struct aio_srv* as;
+		struct _io_res iores;
+	}*p=ts->data;
+	struct reactor* r=ts->r;
+
+	switch(ts->stat){
+		case INIT:
+			ts=malloc(sizeof(struct task));
+			p=malloc(sizeof(*p));
+			p->as=input->as;
+			ts->data=p;
+			ts->fun=simpleTask;
+			ts->r=r;
+			ts->stat=1;
+			ready(ts);
+			return 0;
+		case 1:
+			printf("%d\n",ts->stat);
+			p->ios.aio_fildes = open("/home/xpc/Documents/Bookmarks", O_RDONLY);
+			p->iores.data=ts;
+			p->iores.cb=(int(*)(void*))ready;
+			p->ios.aio_data = (__u64 ) &(p->iores);
+			p->ios.aio_buf = (__u64 ) p->buf;
+			p->ios.aio_nbytes = 64;
+			p->ios.aio_lio_opcode = IOCB_CMD_PREAD;
+			p->ios.aio_offset = 0;
+			p->ios.aio_resfd = 0;
+			ts->stat=2;
+
+			aio_submit(p->as,&(p->ios),1)<0?perror("aio_submit"):0;
+			return 0;
+		case 2:
+			printf("%d\n",ts->stat);
+			printf("%lld : %lld\n",((IORes*)(p->ios.aio_data))->res,((IORes*)(p->ios.aio_data))->res2);
+			if(((IORes*)(p->ios.aio_data))->res2==0)
+				puts((char*)(p->ios.aio_buf));
+			close(p->ios.aio_fildes);
+			p->x=101;
+			printf("%d\n",3);
+		default:
+			break;
+	}
+
+	free(ts->data);
+	free(ts);
+	return 0;
+}
 
 int main(void) {
 
 	struct aio_srv as={.nr_events=10};
 	aio_srv_init(&as)<0?perror("e1"):0;
 
-	char * buf=malloc(1024);
+	struct reactor* rct=create_reactor(3,50,dispatch_by_left);
 
-	struct iocb ios={
-					.aio_fildes=open("/home/xpc/Documents/Bookmarks",O_RDONLY),
-					.aio_data=(__u64)(&(struct _io_res){0,0,ret_res}),
-					.aio_buf=(__u64)buf,
-					.aio_nbytes=64,
-					.aio_lio_opcode=IOCB_CMD_PREAD,
-					.aio_offset=0,
-					.aio_resfd=0
+	struct{
+		struct aio_srv* as;
+	}input={&as};
+	struct task t={
+			.fun=simpleTask,
+			.stat=INIT,
+			.r=rct,
+			.data=&input
 	};
+	simpleTask(&t);
 
-	aio_submit(&as,&ios,1)<0?perror("aio_submit"):0;
 
-	sleep(1);
+	sleep(2);
 
-	if(ios.aio_resfd){
-		printf("%s\n%lld:%lld\n",(char*)ios.aio_buf,((IORes*)ios.aio_data)->res,((IORes*)ios.aio_data)->res2);
-	}
 
-	close(ios.aio_fildes);
-
-	sleep(1);
 	aio_srv_destroy(&as)<0?perror("aio_srv_destroy"):0;
+
+	destory_reactor(rct);
+
 	return EXIT_SUCCESS;
 }
