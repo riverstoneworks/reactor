@@ -43,7 +43,6 @@ int simpleTask(struct task* ts){
 			ready(ts);
 			return 0;
 		case 1:
-			printf("%d\n",ts->stat);
 			p->ios.aio_fildes = open("/home/xpc/Documents/Bookmarks", O_RDONLY);
 			p->iores.data=ts;
 			p->iores.cb=(int(*)(void*))ready;
@@ -58,14 +57,12 @@ int simpleTask(struct task* ts){
 			aio_submit(p->as,&(p->ios),1)<0?perror("aio_submit"):0;
 			return 0;
 		case 2:
-			printf("%d\n",ts->stat);
 			printf("%lld : %lld\n",((IORes*)(p->ios.aio_data))->res,((IORes*)(p->ios.aio_data))->res2);
 			if(((IORes*)(p->ios.aio_data))->res2==0)
 				puts((char*)(p->ios.aio_buf));
-			close(p->ios.aio_fildes);
 			p->x=101;
-			printf("%d\n",3);
 		default:
+			close(p->ios.aio_fildes);
 			break;
 	}
 
@@ -96,9 +93,9 @@ int main(void) {
 	sleep(2);
 
 
-	aio_srv_destroy(&as)<0?perror("aio_srv_destroy"):0;
-
 	destory_reactor(rct);
+
+	aio_srv_destroy(&as)<0?perror("aio_srv_destroy"):0;
 
 	return EXIT_SUCCESS;
 }

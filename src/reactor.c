@@ -93,7 +93,7 @@ int destory_reactor(struct reactor* r){
 		if(rq->end==rq->head){
 			int tmp=-1;
 			eventfd_read(rq->lock_head,NULL);
-			if(rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1))>0)
+			if((rq->end+1)%(rq->cap+1)!=rq->head)
 				tmp=rq->end=(rq->end+1)%(rq->cap+1);
 			eventfd_write(rq->lock_head,1);
 
@@ -109,6 +109,7 @@ int destory_reactor(struct reactor* r){
 	free(r->ready_queue);
 	free(r);
 
+	puts("reactor destroyed!");
 	return 0;
 }
 
@@ -133,7 +134,7 @@ int dispatch_by_left(struct reactor* r,struct task* t){
 	if(left>0){
 		rq=r->ready_queue+i;
 		eventfd_read(rq->lock_head,NULL);
-		if(rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1))>0)
+		if((rq->end+1)%(rq->cap+1)!=rq->head)
 			tmp=rq->end=(rq->end+1)%(rq->cap+1);
 		eventfd_write(rq->lock_head,1);
 
