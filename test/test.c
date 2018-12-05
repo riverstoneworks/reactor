@@ -14,9 +14,9 @@
 #include <error.h>
 #include <string.h>
 
-#include <aio/aio.h>
-#include <reactor/reactor.h>
-#include <reactor/dispatcher.h>
+#include "aio/aio.h"
+#include "reactor/reactor.h"
+#include "reactor/dispatcher.h"
 
 
 int simpleTask(struct task* ts){
