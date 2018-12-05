@@ -27,6 +27,4 @@ extern int destory_reactor(struct reactor*);
 
 extern int ready(struct task* );
 
-extern int dispatch_by_left(struct reactor* r,struct task* t,int num);
-
 #endif /* REACTOR_H_ */
