@@ -29,20 +29,39 @@ struct ready_queue{
 };
 
 struct reactor{
-	int(*dispatch)(struct reactor*,struct task*);
+	int(*dispatch)(struct reactor*,struct task*,int num);
 	struct ready_queue* ready_queue;
 	int run_flag;
 	const unsigned short nq;
 };
+/*
+ * int circular queue operation
+ * The length of queue is 1 more then capability
+ * when head==end, the queue is empty.
+ */
+#define queue_used(rq) ((rq->end-rq->head+rq->cap+1)%(rq->cap+1))
 
-int task_exec(struct ready_queue* rq){
+#define queue_left(rq) ((rq->head-rq->end+rq->cap)%(rq->cap+1))
+
+static inline int queue_in(struct ready_queue* rq,struct task* t,int n){
+	int i=0;
+	for(int j;i<n&&((j=(rq->end+1)%(rq->cap+1))!=rq->head);++i){
+			rq->task[rq->end]=t+i;
+			rq->end=j;
+	}
+	eventfd_write(rq->efd,i);
+	return i;
+}
+
+static int task_exec(struct ready_queue* rq){
 	eventfd_t i=0;
 	struct task* t;
 	while(*(rq->run_flag)){
 		if(eventfd_read(rq->efd,&i)<0)
 			return -1;
 		for(int j=0;j<i;++j){
-			t=rq->task[rq->head++];
+			t=rq->task[rq->head];
+			rq->head=(rq->head+1)%(rq->cap+1);
 			t->fun(t);
 		}
 	}
@@ -50,7 +69,7 @@ int task_exec(struct ready_queue* rq){
 	return 0;
 }
 
-struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,struct task*)){
+struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,struct task*,int)){
 	struct reactor* r=malloc(sizeof(struct reactor));
 	if(!r)
 		return NULL;
@@ -79,7 +98,7 @@ struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,str
 }
 
 //do nothing
-int fn(struct task* v){return 0;}
+static int fn(struct task* v){return 0;}
 
 int destory_reactor(struct reactor* r){
 	int i=r->nq,rt;
@@ -91,16 +110,9 @@ int destory_reactor(struct reactor* r){
 	while(i--){
 		struct ready_queue* rq=r->ready_queue+i;
 		if(rq->end==rq->head){
-			int tmp=-1;
 			eventfd_read(rq->lock_head,NULL);
-			if((rq->end+1)%(rq->cap+1)!=rq->head)
-				tmp=rq->end=(rq->end+1)%(rq->cap+1);
+			queue_in(rq,&tt,1);
 			eventfd_write(rq->lock_head,1);
-
-			if(tmp>0){
-				rq->task[--tmp]=&tt;
-				eventfd_write(rq->efd,1);
-			}
 		}
 		thrd_join(rq->ex_thd,&rt);
 		free(rq->task);
@@ -115,37 +127,32 @@ int destory_reactor(struct reactor* r){
 
 //submit task to ready queue
 int ready(struct task* ts){
-	return (ts->r->dispatch)(ts->r,ts);
+//	printf("%d task(s) dispatched!\n",(ts->r->dispatch)(ts->r,ts,1));
+	return (ts->r->dispatch)(ts->r,ts,1);
 }
 
 
-int dispatch_by_left(struct reactor* r,struct task* t){
+int dispatch_by_left(struct reactor* r,struct task* t,int num){
 	int n=r->nq,i=0,left=0,tmp;
 	struct ready_queue* rq;
 	while(n--){
 		rq=r->ready_queue+n;
-		tmp=rq->cap-((rq->end-rq->head+rq->cap+1)%(rq->cap+1));
+		tmp=(rq->head-rq->end+rq->cap*2+1)%(rq->cap+1);
 		if(left<tmp){
 			left=tmp;
 			i=n;
 		}
 	}
-	tmp=-1;
+
 	if(left>0){
 		rq=r->ready_queue+i;
 		eventfd_read(rq->lock_head,NULL);
-		if((rq->end+1)%(rq->cap+1)!=rq->head)
-			tmp=rq->end=(rq->end+1)%(rq->cap+1);
+		n=queue_in(rq,t,num);
 		eventfd_write(rq->lock_head,1);
-
-		if(tmp>0){
-			rq->task[--tmp]=t;
-			eventfd_write(rq->efd,1);
-		}
-
+//		printf("\nh: %d: e: %d\n",rq->head,rq->end);
 	}
 
-	return tmp<0?-1:rq->cap*i+tmp;
+	return n;
 }
 
 

@@ -21,12 +21,12 @@ struct task{
 	struct reactor* r;
 };
 
-extern struct reactor* create_reactor(int nq,int cap,int(*dispach)(struct reactor*,struct task*));
+extern struct reactor* create_reactor(int nq,int cap,int(*dispach)(struct reactor*,struct task*,int));
 extern int task_cancel(int task_no,struct task*, struct reactor*);
 extern int destory_reactor(struct reactor*);
 
 extern int ready(struct task* );
 
-extern int dispatch_by_left(struct reactor* r,struct task* t);
+extern int dispatch_by_left(struct reactor* r,struct task* t,int num);
 
 #endif /* REACTOR_H_ */

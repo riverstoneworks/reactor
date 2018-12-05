@@ -23,8 +23,8 @@ int simpleTask(struct task* ts){
 		struct aio_srv* as;
 	}*input=ts->data;
 	struct{
-		int x;
-		char buf[1024];
+		long long x;
+		char buf[2049];
 		struct iocb ios;
 		struct aio_srv* as;
 		struct _io_res iores;
@@ -50,17 +50,23 @@ int simpleTask(struct task* ts){
 			p->ios.aio_buf = (__u64 ) p->buf;
 			p->ios.aio_nbytes = 64;
 			p->ios.aio_lio_opcode = IOCB_CMD_PREAD;
-			p->ios.aio_offset = 0;
-			p->ios.aio_resfd = 0;
-			ts->stat=2;
-
+			p->ios.aio_offset=0;
+		case 2:
+			p->ios.aio_offset += p->iores.res;
+//			printf("\n%ld\n",p->ios.aio_offset);
+			ts->stat=3;
 			aio_submit(p->as,&(p->ios),1)<0?perror("aio_submit"):0;
 			return 0;
-		case 2:
-			printf("%lld : %lld\n",((IORes*)(p->ios.aio_data))->res,((IORes*)(p->ios.aio_data))->res2);
-			if(((IORes*)(p->ios.aio_data))->res2==0)
-				puts((char*)(p->ios.aio_buf));
-			p->x=101;
+		case 3:
+			if(((IORes*)(p->ios.aio_data))->res2==0&&((IORes*)(p->ios.aio_data))->res>0){
+				((char*)(p->ios.aio_buf))[p->iores.res]='\0';
+				printf("%s",(char*)(p->ios.aio_buf));
+				ts->stat=2;
+				if(p->ios.aio_nbytes==((IORes*)(p->ios.aio_data))->res)
+					ready(ts);
+				return 0;
+			}else
+				printf("%lld : %lld\n",((IORes*)(p->ios.aio_data))->res,((IORes*)(p->ios.aio_data))->res2);
 		default:
 			close(p->ios.aio_fildes);
 			break;
@@ -90,7 +96,7 @@ int main(void) {
 	simpleTask(&t);
 
 
-	sleep(2);
+	sleep(10);
 
 
 	destory_reactor(rct);
