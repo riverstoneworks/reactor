@@ -27,10 +27,8 @@ int dispatch_by_left(struct reactor* r,struct task* t,int task_num){
 
 	if(left>0){
 		rq=r->ready_queue+i;
-		eventfd_read(rq->lock_head,NULL);
 		n=queue_in(rq,t,task_num);
-		eventfd_write(rq->lock_head,1);
-//		printf("\nh: %d: e: %d\n",rq->head,rq->end);
+//		printf("\nh: %d: e: %d\n :num %d\n",rq->head,rq->end, n);
 	}
 
 	return n;

@@ -9,22 +9,23 @@
 #define REACTOR_TYPE_H_
 
 #include <threads.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 struct ready_queue{
 	struct task** task;
-	unsigned short head;
-	unsigned short end;
+	volatile unsigned short head;
+	volatile atomic_ushort end; // @suppress("Type cannot be resolved")
 	const unsigned short cap;
 	int efd;			//read write signal
 	thrd_t ex_thd;
-	int lock_head;
-	int *run_flag;
+	volatile bool *run_flag;
 };
 
 struct reactor{
 	int(*dispatch)(struct reactor*,struct task*,int num);
 	struct ready_queue* ready_queue;
-	int run_flag;
+	volatile bool run_flag;
 	const unsigned short nq;
 };
 
@@ -39,12 +40,20 @@ struct reactor{
 
 static inline int queue_in(struct ready_queue* rq,struct task* t,int n){
 	int i=0;
-	for(int j;i<n&&((j=(rq->end+1)%(rq->cap+1))!=rq->head);++i){
-			rq->task[rq->end]=t+i;
-			rq->end=j;
+	unsigned short j,ce;
+	while(i<n){
+		if((j=((ce=rq->end)+1)%(rq->cap+1))!=rq->head){
+			if(atomic_compare_exchange_strong_explicit(&(rq->end),&ce,j,memory_order_relaxed,memory_order_relaxed))
+				rq->task[ce]=t+i;
+			else
+				continue;
+			++i;
+		}else
+			break;
+
 	}
-	eventfd_write(rq->efd,i);
-	return i;
+
+	return i>0?(eventfd_write(rq->efd,i)?-1:i):0;
 }
 
 #endif /* REACTOR_TYPE_H_ */

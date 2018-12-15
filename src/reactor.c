@@ -16,12 +16,14 @@
 #include "reactor/reactor.h"
 #include "reactor_type.h"
 
-
-static int task_exec(struct ready_queue* rq){
+/*
+ * task scheduler
+ */
+static int scheduler(struct ready_queue* rq){
 	eventfd_t i=0;
 	struct task* t;
 	while(*(rq->run_flag)){
-		if(eventfd_read(rq->efd,&i)<0)
+		if(eventfd_read(rq->efd,&i))
 			return -1;
 		for(int j=0;j<i;++j){
 			t=rq->task[rq->head];
@@ -39,7 +41,7 @@ struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,str
 		return NULL;
 	*(unsigned short*)(&(r->nq))=nq;
 	r->dispatch=dispatch;
-	r->run_flag=1;
+	r->run_flag=true;
 
 	if(!(r->ready_queue=malloc(sizeof(struct ready_queue)*nq)))
 		return NULL;
@@ -51,8 +53,7 @@ struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,str
 		rq->end=0;
 		rq->run_flag=&(r->run_flag);
 		rq->efd=eventfd(0, 0);
-		rq->lock_head=eventfd(1, EFD_SEMAPHORE);
-		int eno=thrd_create(&(rq->ex_thd), (int(*)(void*))task_exec,rq );
+		int eno=thrd_create(&(rq->ex_thd), (int(*)(void*))scheduler,rq );
 		if(eno<0||rq->efd<0||rq->task==NULL){
 			perror("reactor init error!");
 			destory_reactor(r);
@@ -66,8 +67,8 @@ struct reactor* create_reactor(int nq,int cap,int(*dispatch)(struct reactor*,str
 static int fn(struct task* v){return 0;}
 
 int destory_reactor(struct reactor* r){
+	r->run_flag=false;
 	int i=r->nq,rt;
-	r->run_flag=0;
 	struct task tt={
 			.r=r,
 			.fun=fn
@@ -75,9 +76,7 @@ int destory_reactor(struct reactor* r){
 	while(i--){
 		struct ready_queue* rq=r->ready_queue+i;
 		if(rq->end==rq->head){
-			eventfd_read(rq->lock_head,NULL);
 			queue_in(rq,&tt,1);
-			eventfd_write(rq->lock_head,1);
 		}
 		thrd_join(rq->ex_thd,&rt);
 		free(rq->task);
@@ -95,7 +94,3 @@ int ready(struct task* ts){
 //	printf("%d task(s) dispatched!\n",(ts->r->dispatch)(ts->r,ts,1));
 	return (ts->r->dispatch)(ts->r,ts,1);
 }
-
-
-
-
