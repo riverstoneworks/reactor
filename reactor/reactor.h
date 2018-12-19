@@ -7,8 +7,14 @@
 
 #ifndef REACTOR_H_
 #define REACTOR_H_
-
+#include <threads.h>
 struct reactor;
+
+typedef struct{
+	struct reactor* rct;
+	const thrd_t ** rq_thd;
+	unsigned short rq_thd_num;
+}Reactor;
 
 struct task{
 	int (*fun)(struct task*); //function to be executed
@@ -18,12 +24,12 @@ struct task{
 			COMPLETE=-1,
 			INIT=0
 	} stat;	//status ID
-	struct reactor* r;
+	Reactor* r;
 };
 
-extern struct reactor* create_reactor(int nq,int cap,int(*dispach)(struct reactor*,struct task*,int));
-extern int task_cancel(int task_no,struct task*, struct reactor*);
-extern int destory_reactor(struct reactor*);
+extern Reactor* create_reactor(const unsigned short nq,const unsigned short cap,int(*dispach)(struct reactor*,struct task*,int));
+extern int task_cancel(int task_no,struct task*, Reactor*);
+extern int destory_reactor(Reactor*);
 
 extern int ready(struct task* );
 

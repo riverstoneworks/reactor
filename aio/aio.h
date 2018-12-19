@@ -7,6 +7,7 @@
 
 #ifndef AIO_H_
 #define AIO_H_
+#include <threads.h>
 #include <linux/aio_abi.h>
 
 
@@ -19,8 +20,9 @@ typedef struct _io_res{
 
 struct _aio_srv;
 struct aio_srv{
-	long nr_events;
-	struct _aio_srv* _aio;
+	unsigned long nr_events;
+	struct _aio_srv *_aio;
+	const thrd_t * thd_get_ioev;
 };
 
 extern int aio_srv_init(struct aio_srv *);

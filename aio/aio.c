@@ -4,7 +4,9 @@
  *  Created on: Nov 4, 2018
  *      Author: Like.Z(sxpc722@aliyun.com)
  */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -23,6 +25,7 @@ struct _aio_srv{
 
 
 int aio_srv_get_ioev(struct aio_srv* a){
+	printf("aio_srv_get_event tid: %d\n",getpid());
 	int n=0;
 	while(1){
 		n=syscall(SYS_io_getevents, a->_aio->ctx, 1, a->nr_events, a->_aio->ioev ,NULL);
@@ -44,16 +47,18 @@ int aio_srv_init(struct aio_srv * a){
 	//new
 	a->_aio=calloc(1,sizeof(struct _aio_srv));
 	a->_aio->ioev=malloc(sizeof(struct io_event)*a->nr_events);
+	a->thd_get_ioev=&(a->_aio->thd);
 
 	int n=syscall(SYS_io_setup,a->nr_events,&(a->_aio->ctx));
 
-	if(n<0)
-		return n;
-	else
-		n=thrd_create(&(a->_aio->thd), (int(*)(void*))aio_srv_get_ioev, a);
-
-	printf("aio_srv_get_event thd: %lu\n",a->_aio->thd);
-	return n;
+	if(n<0){
+		perror("syscall SYS_io_setup");
+		return -1;
+	}else if(thrd_create(&(a->_aio->thd), (int(*)(void*))aio_srv_get_ioev, a)){
+		perror("thrd_create");
+		return -2;
+	}
+	return 0;
 }
 
 int aio_srv_destroy(struct aio_srv* a){

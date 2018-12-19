@@ -8,9 +8,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
-#include "reactor/reactor.h"
+#include "reactor_utility.h"
 #include "reactor/dispatcher.h"
-#include "reactor_type.h"
 
 
 int dispatch_by_left(struct reactor* r,struct task* t,int task_num){

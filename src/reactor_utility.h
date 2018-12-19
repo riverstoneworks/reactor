@@ -5,28 +5,28 @@
  *      Author: Like.Z(sxpc722@aliyun.com)
  */
 
-#ifndef REACTOR_TYPE_H_
-#define REACTOR_TYPE_H_
-
+#ifndef REACTOR_UTILITY_H_
+#define REACTOR_UTILITY_H_
 #include <threads.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include "reactor/reactor.h"
 
 struct ready_queue{
 	struct task** task;
+	thrd_t ex_thd;
+	int efd;			//read write signal
+	const unsigned short cap;
 	volatile unsigned short head;
 	volatile atomic_ushort end; // @suppress("Type cannot be resolved")
-	const unsigned short cap;
-	int efd;			//read write signal
-	thrd_t ex_thd;
 	volatile bool *run_flag;
 };
 
 struct reactor{
-	int(*dispatch)(struct reactor*,struct task*,int num);
 	struct ready_queue* ready_queue;
-	volatile bool run_flag;
+	int(*dispatch)(struct reactor*,struct task*,int num);
 	const unsigned short nq;
+	volatile bool run_flag;
 };
 
 /*
@@ -50,10 +50,11 @@ static inline int queue_in(struct ready_queue* rq,struct task* t,int n){
 			++i;
 		}else
 			break;
-
 	}
 
 	return i>0?(eventfd_write(rq->efd,i)?-1:i):0;
 }
 
-#endif /* REACTOR_TYPE_H_ */
+
+
+#endif /* REACTOR_UTILITY_H_ */

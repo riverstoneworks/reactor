@@ -17,7 +17,7 @@
 #include "aio/aio.h"
 #include "reactor/reactor.h"
 #include "reactor/dispatcher.h"
-
+#include "sched_utility/sched_utility.h"
 
 int simpleTask(struct task* ts){
 	struct{
@@ -30,7 +30,7 @@ int simpleTask(struct task* ts){
 		struct aio_srv* as;
 		struct _io_res iores;
 	}*p=ts->data;
-	struct reactor* r=ts->r;
+	Reactor* r=ts->r;
 
 	switch(ts->stat){
 		case INIT:
@@ -52,7 +52,7 @@ int simpleTask(struct task* ts){
 			p->ios.aio_nbytes = 64;
 			p->ios.aio_lio_opcode = IOCB_CMD_PREAD;
 			p->ios.aio_offset=0;
-		case 2:
+c2:		case 2:
 			p->ios.aio_offset += p->iores.res;
 //			printf("\n%ld\n",p->ios.aio_offset);
 			ts->stat=3;
@@ -62,14 +62,15 @@ int simpleTask(struct task* ts){
 			if(((IORes*)(p->ios.aio_data))->res2==0&&((IORes*)(p->ios.aio_data))->res>0){
 				((char*)(p->ios.aio_buf))[p->iores.res]='\0';
 				printf("%s",(char*)(p->ios.aio_buf));
-				ts->stat=2;
+//				ts->stat=2;
 				if(p->ios.aio_nbytes==((IORes*)(p->ios.aio_data))->res)
-					ready(ts);
-				return 0;
+//					ready(ts);
+					goto c2;
+//				return 0;
 			}else
 				printf("%lld : %lld\n",((IORes*)(p->ios.aio_data))->res,((IORes*)(p->ios.aio_data))->res2);
-		default:
 			close(p->ios.aio_fildes);
+		default:
 			break;
 	}
 
@@ -83,7 +84,37 @@ int main(void) {
 	struct aio_srv as={.nr_events=10};
 	aio_srv_init(&as)<0?perror("e1"):0;
 
-	struct reactor* rct=create_reactor(3,50,dispatch_by_left);
+	Reactor* rct=create_reactor(3,50,dispatch_by_left);
+
+	//set thread cpu affinity
+	unsigned short cpu_ids[5]={0,3,1,2,3};
+	thd_cpu_affinity_conf tcac[5]={
+			{
+					.thd=thrd_current(),
+					.cpu_ids=cpu_ids,
+					.num=1
+			},{
+					.thd=*(as.thd_get_ioev),
+					.cpu_ids=cpu_ids+1,
+					.num=1
+			},{
+					.thd=*(rct->rq_thd[0]),
+					.cpu_ids=cpu_ids+2,
+					.num=1
+			},{
+					.thd=*(rct->rq_thd[1]),
+					.cpu_ids=cpu_ids+3,
+					.num=1
+			},{
+					.thd=*(rct->rq_thd[2]),
+					.cpu_ids=cpu_ids+4,
+					.num=1
+			}
+
+	};
+
+	set_thd_cpu_affinity(tcac,5);
+
 
 	struct{
 		struct aio_srv* as;
@@ -96,8 +127,8 @@ int main(void) {
 	};
 	simpleTask(&t);
 
-
-	sleep(10);
+	printf("%d\n",getpid());
+	sleep(60);
 
 
 	destory_reactor(rct);
